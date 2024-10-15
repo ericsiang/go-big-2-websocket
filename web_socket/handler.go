@@ -48,6 +48,7 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 		}
 		server.AddPlayer(player)
 	}
+	player.StartHeartbeat()
 
 	var currentRoom *room.Room
 	// 检查是否是重连

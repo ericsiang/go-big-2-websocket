@@ -33,7 +33,7 @@ func (p *Player) StartHeartbeat() {
 	p.HeartbeatTimer = time.NewTimer(heartbeatInterval)
 	go func() {
 		for {
-			<- p.HeartbeatTimer.C
+			<-p.HeartbeatTimer.C
 			p.Mu.Lock()
 			if time.Since(p.LastHeartbeat) > heartbeatTimeout {
 				p.Mu.Unlock()
@@ -44,11 +44,11 @@ func (p *Player) StartHeartbeat() {
 
 			err := p.Conn.WriteJSON(Message{Type: "heartbeat"})
 			if err != nil {
-				slog.Error("Error sending heartbeat to player %s: %v", p.ID, err.Error())
+				slog.Error("Error sending heartbeat to player - ", p.ID, err.Error())
 				p.DisconnectPlayer()
 				return
 			}
-			
+			p.HeartbeatTimer.Reset(heartbeatInterval)
 		}
 	}()
 }
@@ -60,14 +60,14 @@ func (p *Player) HandleHeartbeatResponse() {
 }
 
 func (p *Player) DisconnectPlayer() {
-	if p.Room != nil{
+	if p.Room != nil {
 		p.Room.Mu.Lock()
 		defer p.Room.Mu.Lock()
+		delete(p.Room.Players, p.ID)
+		p.Room.DisconnectedPlayers[p.ID] = p
 	}
 
 	p.DisconnectTime = time.Now()
-	delete(p.Room.Players, p.ID)
-	p.Room.DisconnectedPlayers[p.ID] = p
 	p.Conn.Close()
 
 	// 通知其他玩家该玩家已断线
@@ -180,7 +180,6 @@ func (r *Room) ReconnectPlayer(player *Player) {
 		"player_id": player.ID,
 	}})
 }
-
 
 func (r *Room) Broadcast(message Message) {
 	r.Mu.Lock()

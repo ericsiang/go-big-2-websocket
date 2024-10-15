@@ -10,17 +10,19 @@ import (
 )
 
 type Server struct {
-	Players      map[string]*room.Player
-	Rooms        map[string]*room.Room
-	PlayerToRoom map[string]string // 新增：用于快速查找玩家所在的房间
-	Mu           sync.Mutex
+	Players             map[string]*room.Player
+	DisconnectedPlayers map[string]*room.Player
+	Rooms               map[string]*room.Room
+	PlayerToRoom        map[string]string // 新增：用于快速查找玩家所在的房间 map[playerID]RoomID
+	Mu                  sync.Mutex
 }
 
 func NewServer() *Server {
 	return &Server{
-		Players:      make(map[string]*room.Player),
-		Rooms:        make(map[string]*room.Room),
-		PlayerToRoom: make(map[string]string),
+		Players:             make(map[string]*room.Player),
+		DisconnectedPlayers: make(map[string]*room.Player),
+		Rooms:               make(map[string]*room.Room),
+		PlayerToRoom:        make(map[string]string),
 	}
 }
 
