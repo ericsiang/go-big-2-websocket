@@ -27,10 +27,9 @@ func (e ErrInvalidPlay) Error() string {
 func main() {
 	port := "8080"
 	server := server.NewServer()
-	pool := web_socket.NewConnectionPool(100)
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		web_socket.HandleWebSocket(server, w, r, pool)
+		web_socket.HandleWebSocket(server, w, r)
 	})
 
 	log.Println("Starting server on :", port)

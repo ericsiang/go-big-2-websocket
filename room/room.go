@@ -12,8 +12,16 @@ import (
 
 const (
 	heartbeatInterval = 5 * time.Second
-	heartbeatTimeout  = 15 * time.Second
+	heartbeatTimeout  = 10 * time.Second
 	reconnectWindow   = 60 * time.Second
+)
+
+type RoomState int
+
+const (
+	RoomStateWaiting RoomState = iota
+	RoomStateInGame
+	RoomStateEnded
 )
 
 type Player struct {
@@ -25,6 +33,8 @@ type Player struct {
 	LastHeartbeat  time.Time
 	HeartbeatTimer *time.Timer
 	DisconnectTime time.Time
+	State          RoomState
+	LastActivity        time.Time
 }
 
 // 設定心跳機制，確認是否斷線
@@ -56,20 +66,21 @@ func (p *Player) StartHeartbeat() {
 func (p *Player) HandleHeartbeatResponse() {
 	p.Mu.Lock()
 	defer p.Mu.Unlock()
+	slog.Info("[HandleHeartbeatResponse]")
 	p.LastHeartbeat = time.Now()
 }
 
 func (p *Player) DisconnectPlayer() {
+	slog.Info("[DisconnectPlayer] ", "player", p.ID)
 	if p.Room != nil {
 		p.Room.Mu.Lock()
-		defer p.Room.Mu.Lock()
 		delete(p.Room.Players, p.ID)
 		p.Room.DisconnectedPlayers[p.ID] = p
+		p.Room.Mu.Unlock()
 	}
 
 	p.DisconnectTime = time.Now()
 	p.Conn.Close()
-
 	// 通知其他玩家该玩家已断线
 	p.Room.Broadcast(Message{
 		Type: "player_disconnected",
@@ -161,7 +172,7 @@ func (r *Room) ReconnectPlayer(player *Player) {
 	r.Mu.Lock()
 	defer r.Mu.Unlock()
 
-	for i, p := range r.Players {
+	for i, p := range r.DisconnectedPlayers {
 		if p.ID == player.ID {
 			r.Players[i].Conn = player.Conn
 			break
@@ -182,13 +193,12 @@ func (r *Room) ReconnectPlayer(player *Player) {
 }
 
 func (r *Room) Broadcast(message Message) {
-	r.Mu.Lock()
-	defer r.Mu.Unlock()
-
-	for _, player := range r.Players {
-		err := player.Conn.WriteJSON(message)
-		if err != nil {
-			slog.Error("Error room broadcasting to player %s: %v", player.ID, err)
+	if r != nil && len(r.Players) > 0 {
+		for _, player := range r.Players {
+			err := player.Conn.WriteJSON(message)
+			if err != nil {
+				slog.Error("Error room broadcasting to player %s: %v", player.ID, err)
+			}
 		}
 	}
 }

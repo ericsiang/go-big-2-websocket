@@ -30,7 +30,7 @@ func (s *Server) CreateRoom() *room.Room {
 	rooms := s.ListRooms()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	slog.Info("in CreateRoom")
+	slog.Info("[in CreateRoom] ")
 	for {
 		roomID := room.GenerateID()
 		// log.Println("roomID:",roomID)
@@ -59,7 +59,7 @@ func (s *Server) GetRoom(roomID string) *room.Room {
 func (s *Server) ListRooms() []string {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	slog.Info("in ListRooms")
+	slog.Info("[in ListRooms] ")
 	rooms := make([]string, 0, len(s.Rooms))
 	for roomID := range s.Rooms {
 		rooms = append(rooms, roomID)
@@ -72,7 +72,7 @@ func (s *Server) AddPlayer(player *room.Player) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	s.Players[player.ID] = player
-	slog.Info("player add :", "player", player)
+	slog.Info("[player add] ", "player", player)
 }
 
 func (s *Server) ListPlayers() []string {
@@ -88,7 +88,7 @@ func (s *Server) ListPlayers() []string {
 }
 
 func (s *Server) JoinRoom(roomID string, player *room.Player) (bool, error) {
-	slog.Info("in JoinRoom")
+	slog.Info("[in JoinRoom] ")
 	room := s.GetRoom(roomID)
 	if room == nil {
 		return false, errors.New("roomID not exist")
@@ -102,7 +102,7 @@ func (s *Server) JoinRoom(roomID string, player *room.Player) (bool, error) {
 	}
 
 	room.Players[player.ID] = player
-	slog.Info("room.Players : ", "players", room.Players)
+	slog.Info("[room.Players] ", "players", room.Players)
 	player.Room = room
 
 	s.Mu.Lock()

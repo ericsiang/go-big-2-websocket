@@ -19,22 +19,24 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Request, pool *ConnectionPool) {
-
-	conn := pool.Get(w, r)
-	defer pool.Put(conn)
-	// conn, err := upgrader.Upgrade(w, r, nil)
-	// if err != nil {
-	// 	slog.Error("Error upgrading to WebSocket - " + err.Error())
-	// 	return
-	// }
-	// defer conn.Close()
-
+func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Request) {
+	// 建立 webscket conn
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("Error upgrading to WebSocket - " + err.Error())
+		return
+	}
+	defer func() {
+		slog.Info("[conn close]")
+		conn.Close()
+	}()
+	// 建立 Player
 	player := &room.Player{
 		Conn:          conn,
 		LastHeartbeat: time.Now(),
 	}
 	players := server.ListPlayers()
+	// 從 Query 取得 player_id ， 用來重連使用
 	playerID := r.URL.Query().Get("player_id")
 	if playerID == "" {
 		for {
@@ -62,7 +64,7 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 	}
 
 	roomList := server.ListRooms()
-	err := conn.WriteJSON(room.Message{
+	err = conn.WriteJSON(room.Message{
 		Type:    "room_list",
 		Content: roomList,
 	})
@@ -76,11 +78,13 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 		err := conn.ReadJSON(&msg)
 		if err != nil {
 			slog.Error("Error reading message - " + err.Error())
-			conn.Close()
+			// conn.Close()
 			break
 		}
-		slog.Info("msg:", "message", msg)
+		// slog.Info("[msg]", "message", msg)
 		switch msg.Type {
+		case "heartbeat_resp":
+			player.HandleHeartbeatResponse()
 		case "create_room":
 			// log.Println("in create_room")
 			createRoom := server.CreateRoom()
@@ -88,7 +92,6 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 			_, err := server.JoinRoom(createRoom.ID, player)
 			if err != nil {
 				slog.Error("Error join room message - " + err.Error())
-				continue
 			}
 			err = conn.WriteJSON(room.Message{
 				Type:    "room_created",
@@ -96,7 +99,6 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 			})
 			if err != nil {
 				slog.Error("Error write message - " + err.Error())
-				continue
 			}
 		case "join_room":
 			roomID, ok := msg.Content.(string)
@@ -104,7 +106,6 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 				conn.WriteJSON(room.Message{
 					Type: "error", Content: "Invalid room ID",
 				})
-				continue
 			}
 
 			ok, err := server.JoinRoom(roomID, player)
@@ -112,7 +113,6 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 				conn.WriteJSON(room.Message{
 					Type: "error", Content: err.Error(),
 				})
-				continue
 			}
 			if ok {
 				conn.WriteJSON(room.Message{Type: "room_joined", Content: roomID})
@@ -137,7 +137,6 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 				conn.WriteJSON(room.Message{
 					Type: "error", Content: "Invalid room ID",
 				})
-				continue
 			}
 
 			players := playerRoom.ListPlayers()
@@ -150,7 +149,6 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 				conn.WriteJSON(room.Message{
 					Type: "error", Content: "broadcast error",
 				})
-				continue
 			}
 
 			server.Broadcast(room.Message{
