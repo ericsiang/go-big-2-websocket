@@ -1,12 +1,12 @@
 package web_socket
 
 import (
+	"big2/player"
 	"big2/room"
 	"big2/server"
 	"log/slog"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -31,10 +31,7 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 		conn.Close()
 	}()
 	// 建立 Player
-	player := &room.Player{
-		Conn:          conn,
-		LastHeartbeat: time.Now(),
-	}
+	// player := player.NewEmptyPlayer()
 	players := server.ListPlayers()
 	// 從 Query 取得 player_id ， 用來重連使用
 	playerID := r.URL.Query().Get("player_id")
@@ -42,15 +39,15 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 		for {
 			playerID := room.GenerateID()
 			if !slices.Contains(players, playerID) {
-				player.ID = playerID
+				player := player.NewPlayer(playerID, conn)
+				server.AddPlayer(player)
+				player.StartHeartbeat()
 				break
 			} else {
 				continue
 			}
 		}
-		server.AddPlayer(player)
 	}
-	player.StartHeartbeat()
 
 	var currentRoom *room.Room
 	// 检查是否是重连

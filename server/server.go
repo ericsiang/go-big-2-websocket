@@ -2,7 +2,10 @@ package server
 
 import (
 	"big2/big2_game"
+	"big2/handle_errors"
+	"big2/player"
 	"big2/room"
+	"big2/shared"
 	"errors"
 	"log/slog"
 	"slices"
@@ -10,18 +13,20 @@ import (
 )
 
 type Server struct {
-	Players             map[string]*room.Player
-	DisconnectedPlayers map[string]*room.Player
-	Rooms               map[string]*room.Room
-	PlayerToRoom        map[string]string // 新增：用于快速查找玩家所在的房间 map[playerID]RoomID
 	Mu                  sync.Mutex
+	Game                shared.Game
+	Players             map[string]shared.Player
+	DisconnectedPlayers map[string]shared.Player
+	Rooms               map[string]shared.Room
+	PlayerToRoom        map[string]string // 新增：用于快速查找玩家所在的房间 map[playerID]RoomID
 }
 
 func NewServer() *Server {
 	return &Server{
-		Players:             make(map[string]*room.Player),
-		DisconnectedPlayers: make(map[string]*room.Player),
-		Rooms:               make(map[string]*room.Room),
+		Game:                big2_game.NewBig2Game(),
+		Players:             make(map[string]shared.Player),
+		DisconnectedPlayers: make(map[string]shared.Player),
+		Rooms:               make(map[string]shared.Room),
 		PlayerToRoom:        make(map[string]string),
 	}
 }
@@ -36,11 +41,7 @@ func (s *Server) CreateRoom() *room.Room {
 		// log.Println("roomID:",roomID)
 		if !slices.Contains(rooms, roomID) {
 			// log.Println(" in slices")
-			room := &room.Room{
-				ID:      roomID,
-				Players: make(map[string]*room.Player, 4),
-				Game:    &room.Big2Game{Deck: &big2_game.Deck{}},
-			}
+			room := room.NewRoom(roomID, server.Game)
 			s.Rooms[roomID] = room
 			return room
 		} else {
@@ -68,10 +69,10 @@ func (s *Server) ListRooms() []string {
 	return rooms
 }
 
-func (s *Server) AddPlayer(player *room.Player) {
+func (s *Server) AddPlayer(player shared.Player) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	s.Players[player.ID] = player
+	s.Players[player.GetID()] = player
 	slog.Info("[player add] ", "player", player)
 }
 
@@ -87,7 +88,7 @@ func (s *Server) ListPlayers() []string {
 	return players
 }
 
-func (s *Server) JoinRoom(roomID string, player *room.Player) (bool, error) {
+func (s *Server) JoinRoom(roomID string, player *player.Player) (bool, error) {
 	slog.Info("[in JoinRoom] ")
 	room := s.GetRoom(roomID)
 	if room == nil {
@@ -98,12 +99,12 @@ func (s *Server) JoinRoom(roomID string, player *room.Player) (bool, error) {
 	defer room.Mu.Unlock()
 
 	if len(room.Players) >= 4 {
-		return false, errors.New("room player already full")
+		return false, handle_errors.ErrRoomFull
 	}
 
 	room.Players[player.ID] = player
 	slog.Info("[room.Players] ", "players", room.Players)
-	player.Room = room
+	// player.Room = room
 
 	s.Mu.Lock()
 	s.PlayerToRoom[player.ID] = roomID
