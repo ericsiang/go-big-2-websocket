@@ -1,4 +1,4 @@
-package big2_game
+package big2_card
 
 import (
 	"fmt"
@@ -57,36 +57,43 @@ var (
 	Suits               = []string{"梅花", "方塊", "紅心", "黑桃"}
 )
 
-type ErrInvalidCardCount struct {
-	Msg string
+type CardError struct {
+	Type string
+	Code int
+	Msg  string
 }
 
-func (e ErrInvalidCardCount) Error() string {
-	return e.Msg
+func (e *CardError) Error() string {
+	return fmt.Sprintf("CardError_%d: %s", e.Code, e.Msg)
 }
 
-type ErrCompareFail struct {
-	Msg string
-}
+var (
+	ErrInvalidCardCount = &CardError{Type: "Card", Code: 0, Msg: "牌型數量不正確"}
+	ErrCompareFail      = &CardError{Type: "Card", Code: 1, Msg: "比較牌型失敗"}
+	ErrInvalidCardType  = &CardError{Type: "Card", Code: 2, Msg: "牌型不正確"}
+)
 
-func (e ErrCompareFail) Error() string {
-	return e.Msg
-}
-
-// 建立 Big2Card 結構體，包含 Card
+// 建立 Big2Card 結構體
 type Big2Card struct {
-	Card
 }
 
 type GarbageCard struct {
-	AlreadyUseCard []Card
+	alreadyUseCard []Card
+}
+
+func NewBig2Card() Big2Card {
+	return Big2Card{}
+}
+
+func (g *GarbageCard) GetAlreadyUseCard() []Card {
+	return g.alreadyUseCard
 }
 
 // 產生牌組
 func (c Big2Card) NewDeck(totalCount int) ([][]Card, *GarbageCard) {
 	deck := &Deck{}
 	alreadyUseCard := []Card{}
-	garbageCard := &GarbageCard{AlreadyUseCard: alreadyUseCard}
+	garbageCard := &GarbageCard{alreadyUseCard: alreadyUseCard}
 	generateDeck := deck.GenerateDeck(totalCount)
 	big2Deck := c.addBig2Deck(generateDeck)
 	// fmt.Println("generateDeck:", big2Deck)
@@ -106,10 +113,22 @@ func (c Big2Card) addBig2Deck(generateDeck []Card) []Card {
 	return generateDeck
 }
 
+func (c Big2Card) CheckFirstCard(cards []Card) bool {
+	firstCardCheck := false
+	for _, card := range cards {
+		if card.Suit == Block && card.Value == Three {
+			firstCardCheck = true
+			break
+		}
+	}
+	// slog.Info("[CheckFirstCard]","firstCardCheck",firstCardCheck)
+	return firstCardCheck
+}
+
 // 判斷牌型
 func (c Big2Card) AnalyzeCards(cards []Card) (handType CardType, highCard Card, err error) {
 	if len(cards) > 5 {
-		err := ErrInvalidCardCount{Msg: "牌型數量不正確"}
+		err := ErrInvalidCardCount
 		return 0, Card{}, err
 	}
 
@@ -134,8 +153,11 @@ func (c Big2Card) AnalyzeCards(cards []Card) (handType CardType, highCard Card, 
 	if c.isPair(cards) { // 判斷是否為對子
 		return Pair, c.getSameCountHighCard(cards, 2), nil
 	}
-	//為單張
-	return Single, c.getSingleHighCard(cards), nil
+	if c.isSingleCard(cards) {
+		//為單張
+		return Single, c.getSingleHighCard(cards), nil
+	}
+	return 0, Card{}, ErrInvalidCardType
 }
 
 // 比較牌組
@@ -183,7 +205,7 @@ func (c Big2Card) CompareCard(cards1, cards2 []Card) (int, error) {
 		return 2, nil // cards2 勝
 	}
 
-	return 0, ErrCompareFail{Msg: "比較牌型失敗"}
+	return 0, ErrCompareFail
 }
 
 // 取得調整後的點數
@@ -377,7 +399,13 @@ func (c Big2Card) isPair(cards []Card) bool {
 	return false
 }
 
-// 取得單張的 HighCard
+// 判斷是否單張
+func (c Big2Card) isSingleCard(cards []Card) bool {
+	if len(cards) == 1 {
+		return true
+	}
+	return false
+}
 func (c Big2Card) getSingleHighCard(cards []Card) Card {
 	highCard := Card{}
 	for _, card := range cards {

@@ -1,7 +1,8 @@
 package room
 
 import (
-	"big2/player"
+	"big2/big2_card"
+	"big2/handle_errors"
 	"big2/shared"
 	"log/slog"
 	"math/rand"
@@ -43,37 +44,46 @@ func GenerateID() string {
 	return string(b)
 }
 
-// func (r *Room) StartGame() {
-// 	playerHands, garbageCard := r.Game.Start()
-// 	r.Game.GarbageCard = garbageCard
-// 	i := 0
-// 	for _, player := range r.Players {
-// 		player.Hand = playerHands[i]
-// 		i++
-// 	}
+func (r *Room) StartGame() {
+	err := r.game.Start()
+	if err != nil {
+		return
+	}
+	r.Broadcast("game_start", "The game is starting!")
+	slog.Info("[StartGame]", "game_start", "The game is starting!")
 
-// 	// 找到擁有方塊 3 的玩家開始
-// 	startingPlayer := r.findStartingPlayer()
-// 	r.CurrentTurn = startingPlayer
+	// 開始發牌
+	newPlayerDeck, _ := r.game.GetHandCards()
+	i := 0
+	for _, player := range r.GetPlayers() {
+		player.SetGameSort(i)
+		player.SetHands(newPlayerDeck[i])
+		// Send each player their hand
+		msg := NewMessage()
+		msg.SetMessage("player_hand", player.GetHands())
+		player.GetConn().WriteJSON(msg)
+		i++
+	}
 
-// 	r.Broadcast(Message{Type: "game_start", Content: "The game is starting!"})
+	// 找到擁有方塊 3 的玩家開始
+	startingPlayer := r.findStartingPlayer()
+	r.game.SetCurrentTurn(startingPlayer)
+	r.Broadcast("firstPlayer", map[string]interface{}{
+		"player_id": startingPlayer.GetID(),
+	})
+	return
+}
 
-// 	// Send each player their hand
-// 	for _, player := range r.Players {
-// 		player.Conn.WriteJSON(Message{Type: "player_hand", Content: player.Hand})
-// 	}
-// }
-
-// func (r *Room) findStartingPlayer() *player.Player {
-// 	for _, player := range r.Players {
-// 		for _, card := range player.Hand {
-// 			if card.Suit == big2_game.Block && card.Value == big2_game.Three {
-// 				return player
-// 			}
-// 		}
-// 	}
-// 	return nil
-// }
+func (r *Room) findStartingPlayer() shared.Player {
+	for _, player := range r.GetPlayers() {
+		for _, card := range player.GetHands() {
+			if card.Suit == big2_card.Block && card.Value == big2_card.Three {
+				return player
+			}
+		}
+	}
+	return nil
+}
 
 func NewRoom(roomID string, game shared.Game) *Room {
 	return &Room{
@@ -84,81 +94,121 @@ func NewRoom(roomID string, game shared.Game) *Room {
 	}
 }
 
-func (r *Room) MuLock() {
+func (r *Room) GetID() string {
+	return r.id
+}
+
+func (r *Room) GetGame() shared.Game {
+	return r.game
+}
+
+func (r *Room) AddPlayer(player shared.Player) {
 	r.mu.Lock()
-}
-func (r *Room) MuUnlock() {
-	r.mu.Unlock()
+	defer r.mu.Unlock()
+
+	r.players[player.GetID()] = player
+	slog.Info("[AddPlayer]", "player.GetID()", player.GetID())
+	slog.Info("[AddPlayer]", "player", player)
+	slog.Info("[AddPlayer]", "r.players", r.players)
+
+	player.SetRoom(r)
 }
 
-func (r *Room) AddPlayer(shared.Player) error {
-	return nil
+func (r *Room) RemovePlayer(playerID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delete(r.players, playerID)
 }
 
-func (r *Room) RemovePlayer(shared.Player) error {
-	return nil
+func (r *Room) GetPlayer(playerID string) (shared.Player, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	player, ok := r.players[playerID]
+	return player, ok
 }
 
-func (r *Room) GetPlayer(string) (shared.Player, error) {
-	return nil, nil
+func (r *Room) GetPlayers() map[string]shared.Player {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	slog.Info("[GetPlayers]", "r.players", r.players)
+	return r.players
 }
-func (r *Room) GetPlayers() []shared.Player {
-	return nil
+func (r *Room) GetDisconnectedPlayers() map[string]shared.Player {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.disconnectedPlayers
 }
-func (r *Room) GetDisconnectedPlayers() []shared.Player {
-	return nil
+
+func (r *Room) SetDisconnectedPlayer(player shared.Player) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.disconnectedPlayers[player.GetID()] = player
+}
+
+func (r *Room) RemoveDisconnectedPlayer(player shared.Player) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delete(r.disconnectedPlayers, player.GetID())
 }
 
 func (r *Room) GetState() shared.RoomState {
-	return shared.RoomStateWaiting
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.state
 }
-func (r *Room) SetState(shared.RoomState) {
 
+func (r *Room) SetState(statue shared.RoomState) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.state = statue
 }
 
-// 列出 room 內的 Player
-func (r *Room) ListPlayers() []string {
-	r.Mu.Lock()
-	defer r.Mu.Unlock()
+func (r *Room) ReconnectPlayer(player shared.Player) error {
+	slog.Info("[ReconnectPlayer]", "player", player)
 
-	players := make([]string, 0, len(r.Players))
-	for _, player := range r.Players {
-		players = append(players, player.GetID())
+	disconnectedPlayer := r.disconnectedPlayers[player.GetID()]
+	if len(r.GetPlayers()) < 4 {
+		player.SetHands(disconnectedPlayer.GetHands())
+		r.players[disconnectedPlayer.GetID()] = player
+		delete(r.disconnectedPlayers, disconnectedPlayer.GetID())
+		player.StartHeartbeat()
+	} else {
+		return handle_errors.ErrRoomFull
 	}
-	return players
-}
-
-func (r *Room) ReconnectPlayer(player *player.Player) {
-	r.Mu.Lock()
-	defer r.Mu.Unlock()
-
-	for i, p := range r.DisconnectedPlayers {
-		if p.ID == player.ID {
-			r.Players[i].Conn = player.Conn
-			break
-		}
-	}
+	slog.Info("[ReconnectPlayer]", "r.players", r.players)
+	slog.Info("[ReconnectPlayer]", "r.disconnectedPlayers", r.disconnectedPlayers)
 
 	// 发送当前游戏状态给重连的玩家
-	player.Conn.WriteJSON(Message{Type: "game_state", Content: map[string]interface{}{
-		"current_turn": r.CurrentTurn,
-		"last_play":    r.Game.LastPlay,
-		"hand":         player.Hand,
+	player.GetConn().WriteJSON(Message{Type: "game_state", Content: map[string]interface{}{
+		"current_turn": r.game.GetCurrentTurn(),
+		"last_play":    r.game.GetLastPlayer(),
+		"hand":         player.GetHands(),
 	}})
 
 	// 通知其他玩家该玩家已重连
-	r.Broadcast(Message{Type: "player_reconnected", Content: map[string]interface{}{
-		"player_id": player.ID,
-	}})
+	r.Broadcast("player_reconnected", map[string]interface{}{
+		"player_id": player.GetID(),
+	})
+	return nil
 }
 
 // 對 room 內的 player broadcast
-func (r *Room) Broadcast(message Message) {
+func (r *Room) Broadcast(msgType string, content interface{}) {
 	if r != nil && len(r.players) > 0 {
+		slog.Info("[Room Broadcast]", "r.players", r.players)
+		message := NewMessage()
+		message.SetMessage(msgType, content)
 		for _, player := range r.players {
 			err := player.GetConn().WriteJSON(message)
 			if err != nil {
-				slog.Error("Error room broadcasting to player %s: %v", player.ID, err)
+				slog.Error("[Room Broadcast Error]", "broadcasting to player %s: %v", player.GetID(), "error", err)
 			}
 		}
 	}

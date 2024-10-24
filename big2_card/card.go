@@ -1,4 +1,4 @@
-package big2_game
+package big2_card
 
 type CardInterface interface {
 	AnalyzeCards(cards []Card) (CardType, Card, error)
@@ -11,6 +11,6 @@ type Suit int
 
 // 建立 Card 結構體
 type Card struct {
-	Suit  Suit
-	Value int
+	Suit  Suit `json:"suit"`
+	Value int  `json:"value"`
 }

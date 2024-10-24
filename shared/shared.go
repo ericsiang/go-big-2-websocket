@@ -1,5 +1,11 @@
 package shared
 
+import (
+	"big2/big2_card"
+
+	"github.com/gorilla/websocket"
+)
+
 type PlayerState int
 
 const (
@@ -25,48 +31,57 @@ const (
 	GameStateEnded
 )
 
-type Card interface {
-	GetRank() int
-	GetSuit() int
-	String() string
+type Game interface {
+	Start() error
+	GetHandCards() ([][]big2_card.Card, *big2_card.GarbageCard)
+	SetCurrentTurn(Player)
+	CheckCard(string, []big2_card.Card) error
+	PlayCards(Player, []big2_card.Card) error
+	Pass(Player) error
+	GetState() GameState
+	GetCurrentTurn() Player
+	GetLastPlayer() Player
+	SetLastPlayer(Player)
+	GetLastPlayerCard() []big2_card.Card
+	SetLastPlayerCard([]big2_card.Card)
+	// GetWinner() Player
 }
 
 type Player interface {
 	GetID() string
-	GetHand() []Card
-	SetHand([]Card)
+	GetConn() *websocket.Conn
+	SetConn(*websocket.Conn)
+	GetHands() []big2_card.Card
+	SetHands([]big2_card.Card)
 	GetState() PlayerState
 	SetState(PlayerState)
+	GetRoom() Room
+	SetRoom(Room)
+	GetGameSort() int
+	SetGameSort(int)
 	Disconnect()
-	Reconnect() error
+	StartHeartbeat()
 }
 
 type Room interface {
 	GetID() string
-	Lock()
-	Unlock()
-	AddPlayer(Player) error
-	RemovePlayer(string) error
-	GetPlayer(string) (Player, error)
-	GetPlayers() []Player
-	GetDisconnectedPlayers() []Player
+	GetGame() Game
+	StartGame()
+	AddPlayer(Player)
+	RemovePlayer(string)
+	GetPlayer(string) (Player, bool)
+	GetPlayers() map[string]Player
+	GetDisconnectedPlayers() map[string]Player
+	SetDisconnectedPlayer(Player)
+	RemoveDisconnectedPlayer(Player)
 	GetState() RoomState
 	SetState(RoomState)
 	// GetLastActivity() time.Time
 	// UpdateLastActivity()
-
-	Broadcast(Message)
+	ReconnectPlayer(Player) error
+	Broadcast(string, interface{})
 }
 
 type Message interface {
 	SetMessage(string, interface{})
-}
-
-type Game interface {
-	Start()
-	PlayCards(Player, []Card) error
-	Pass(Player) error
-	GetState() GameState
-	GetCurrentTurn() Player
-	// GetWinner() Player
 }

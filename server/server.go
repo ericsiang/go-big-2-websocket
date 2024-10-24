@@ -1,12 +1,11 @@
 package server
 
 import (
-	"big2/big2_game"
+	"big2/game"
 	"big2/handle_errors"
 	"big2/player"
 	"big2/room"
 	"big2/shared"
-	"errors"
 	"log/slog"
 	"slices"
 	"sync"
@@ -23,7 +22,7 @@ type Server struct {
 
 func NewServer() *Server {
 	return &Server{
-		Game:                big2_game.NewBig2Game(),
+		Game:                game.NewBig2Game(),
 		Players:             make(map[string]shared.Player),
 		DisconnectedPlayers: make(map[string]shared.Player),
 		Rooms:               make(map[string]shared.Room),
@@ -35,13 +34,11 @@ func (s *Server) CreateRoom() *room.Room {
 	rooms := s.ListRooms()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	slog.Info("[in CreateRoom] ")
+	slog.Info("[CreateRoom] ")
 	for {
 		roomID := room.GenerateID()
-		// log.Println("roomID:",roomID)
 		if !slices.Contains(rooms, roomID) {
-			// log.Println(" in slices")
-			room := room.NewRoom(roomID, server.Game)
+			room := room.NewRoom(roomID, s.Game)
 			s.Rooms[roomID] = room
 			return room
 		} else {
@@ -50,7 +47,7 @@ func (s *Server) CreateRoom() *room.Room {
 	}
 }
 
-func (s *Server) GetRoom(roomID string) *room.Room {
+func (s *Server) GetRoom(roomID string) shared.Room {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
@@ -60,7 +57,7 @@ func (s *Server) GetRoom(roomID string) *room.Room {
 func (s *Server) ListRooms() []string {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	slog.Info("[in ListRooms] ")
+	slog.Info("[ListRooms] ")
 	rooms := make([]string, 0, len(s.Rooms))
 	for roomID := range s.Rooms {
 		rooms = append(rooms, roomID)
@@ -73,7 +70,7 @@ func (s *Server) AddPlayer(player shared.Player) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	s.Players[player.GetID()] = player
-	slog.Info("[player add] ", "player", player)
+	slog.Info("[AddPlayer] ", "player", player)
 }
 
 func (s *Server) ListPlayers() []string {
@@ -88,43 +85,42 @@ func (s *Server) ListPlayers() []string {
 	return players
 }
 
-func (s *Server) JoinRoom(roomID string, player *player.Player) (bool, error) {
-	slog.Info("[in JoinRoom] ")
+func (s *Server) JoinRoom(roomID string, player *player.Player) error {
+	slog.Info("[JoinRoom] ")
 	room := s.GetRoom(roomID)
 	if room == nil {
-		return false, errors.New("roomID not exist")
+		return handle_errors.ErrRoomNotFound
 	}
 
-	room.Mu.Lock()
-	defer room.Mu.Unlock()
-
-	if len(room.Players) >= 4 {
-		return false, handle_errors.ErrRoomFull
+	roomPlayers := room.GetPlayers()
+	if len(roomPlayers) >= 4 {
+		return handle_errors.ErrRoomFull
 	}
 
-	room.Players[player.ID] = player
-	slog.Info("[room.Players] ", "players", room.Players)
-	// player.Room = room
+	room.AddPlayer(player)
+	slog.Info("[JoinRoom] ", "players", roomPlayers)
 
 	s.Mu.Lock()
-	s.PlayerToRoom[player.ID] = roomID
+	s.PlayerToRoom[player.GetID()] = roomID
 	s.Mu.Unlock()
 
-	if len(room.Players) == 4 {
+	if len(roomPlayers) == 4 {
 		go room.StartGame()
 	}
 
-	return true, nil
+	return nil
 }
 
-func (s *Server) Broadcast(message room.Message) {
+func (s *Server) Broadcast(msgType string, content interface{}) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 
+	message := room.NewMessage()
+	message.SetMessage(msgType, content)
 	for _, player := range s.Players {
-		err := player.Conn.WriteJSON(message)
+		err := player.GetConn().WriteJSON(message)
 		if err != nil {
-			slog.Error("Error broadcasting to player %s: %v", player.ID, err)
+			slog.Error("[Server Broadcast Error]", "broadcasting to player %s: %v", player.GetID(), "error", err.Error())
 		}
 	}
 }

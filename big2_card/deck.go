@@ -1,4 +1,4 @@
-package big2_game
+package big2_card
 
 import (
 	"math/rand"

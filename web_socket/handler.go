@@ -1,9 +1,13 @@
 package web_socket
 
 import (
+	"big2/big2_card"
+	"big2/handle_errors"
 	"big2/player"
 	"big2/room"
 	"big2/server"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -23,7 +27,7 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 	// 建立 webscket conn
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		slog.Error("Error upgrading to WebSocket - " + err.Error())
+		slog.Error("[HandleWebSocket Error]", "upgrader", "Error upgrading to WebSocket - "+err.Error())
 		return
 	}
 	defer func() {
@@ -31,42 +35,44 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 		conn.Close()
 	}()
 	// 建立 Player
-	// player := player.NewEmptyPlayer()
 	players := server.ListPlayers()
 	// 從 Query 取得 player_id ， 用來重連使用
 	playerID := r.URL.Query().Get("player_id")
-	if playerID == "" {
+	// 检查是否是重连
+	server.Mu.Lock()
+	roomID, exists := server.PlayerToRoom[playerID]
+	slog.Info("[HandleWebSocket]", "PlayerToRoom", server.PlayerToRoom)
+	server.Mu.Unlock()
+	var newPlayer *player.Player
+	slog.Info("[HandleWebSocket]", "newPlayer", newPlayer)
+	if exists {
+		newPlayer = player.NewPlayer(playerID, conn)
+		currentRoom := server.GetRoom(roomID)
+		if currentRoom != nil {
+			slog.Error("[HandleWebSocket Error]", "Reconnect-GetRoom", handle_errors.ErrRoomNotFound.Error())
+			err := send(conn, "error", handle_errors.ErrRoomNotFound.Error())
+			if err != nil {
+				return
+			}
+			currentRoom.ReconnectPlayer(newPlayer)
+		}
+	} else {
 		for {
 			playerID := room.GenerateID()
 			if !slices.Contains(players, playerID) {
-				player := player.NewPlayer(playerID, conn)
-				server.AddPlayer(player)
-				player.StartHeartbeat()
+				newPlayer = player.NewPlayer(playerID, conn)
+				server.AddPlayer(newPlayer)
+				newPlayer.StartHeartbeat()
 				break
 			} else {
 				continue
 			}
 		}
 	}
-
-	var currentRoom *room.Room
-	// 检查是否是重连
-	server.Mu.Lock()
-	roomID, exists := server.PlayerToRoom[playerID]
-	server.Mu.Unlock()
-
-	if exists {
-		currentRoom = server.GetRoom(roomID)
-		currentRoom.ReconnectPlayer(player)
-	}
-
+	slog.Info("[HandleWebSocket]", "after newPlayer", newPlayer)
 	roomList := server.ListRooms()
-	err = conn.WriteJSON(room.Message{
-		Type:    "room_list",
-		Content: roomList,
-	})
+	err = send(conn, "room_list", roomList)
 	if err != nil {
-		slog.Error("Error sending room list - " + err.Error())
 		return
 	}
 
@@ -74,90 +80,171 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 		var msg room.Message
 		err := conn.ReadJSON(&msg)
 		if err != nil {
-			slog.Error("Error reading message - " + err.Error())
-			// conn.Close()
+			slog.Error("[HandleWebSocket Error]", "reading_message_error", err.Error())
 			break
 		}
 		// slog.Info("[msg]", "message", msg)
 		switch msg.Type {
 		case "heartbeat_resp":
-			player.HandleHeartbeatResponse()
+			newPlayer.HandleHeartbeatResponse()
 		case "create_room":
-			// log.Println("in create_room")
 			createRoom := server.CreateRoom()
-			// log.Println("create_room :", createRoom)
-			_, err := server.JoinRoom(createRoom.ID, player)
+			err := server.JoinRoom(createRoom.GetID(), newPlayer)
 			if err != nil {
-				slog.Error("Error join room message - " + err.Error())
+				slog.Error("[HandleWebSocket Error]", "create_room_error", err.Error())
 			}
-			err = conn.WriteJSON(room.Message{
-				Type:    "room_created",
-				Content: createRoom.ID,
-			})
+			err = send(conn, "room_created", createRoom.GetID())
 			if err != nil {
-				slog.Error("Error write message - " + err.Error())
+				return
 			}
 		case "join_room":
 			roomID, ok := msg.Content.(string)
 			if !ok {
-				conn.WriteJSON(room.Message{
-					Type: "error", Content: "Invalid room ID",
-				})
+				slog.Warn("[HandleWebSocket Warn]", "join_room", handle_errors.ErrRoomNotFound.Error())
+				err = send(conn, "join_room_error", handle_errors.ErrRoomNotFound.Error())
+				if err != nil {
+					return
+				}
 			}
 
-			ok, err := server.JoinRoom(roomID, player)
+			err := server.JoinRoom(roomID, newPlayer)
 			if err != nil {
-				conn.WriteJSON(room.Message{
-					Type: "error", Content: err.Error(),
-				})
+				slog.Warn("[HandleWebSocket Warn]", "join_room[JoinRoom]", err.Error())
+				err = send(conn, "join_room_error", err.Error())
+				if err != nil {
+					return
+				}
 			}
-			if ok {
-				conn.WriteJSON(room.Message{Type: "room_joined", Content: roomID})
-			} else {
-				conn.WriteJSON(room.Message{
-					Type: "error", Content: "Failed to join room",
-				})
+			err = send(conn, "room_joined", roomID)
+			if err != nil {
+				return
 			}
 		case "list_room":
 			rooms := server.ListRooms()
-			conn.WriteJSON(room.Message{
-				Type: "room_list", Content: rooms,
-			})
+			err = send(conn, "room_list", rooms)
+			if err != nil {
+				return
+			}
 		case "list_player":
 			players := server.ListPlayers()
-			conn.WriteJSON(room.Message{
-				Type: "player_list", Content: players,
-			})
-		case "list_room_player":
-			playerRoom := player.Room
-			if playerRoom == nil {
-				conn.WriteJSON(room.Message{
-					Type: "error", Content: "Invalid room ID",
-				})
+			err = send(conn, "player_list", players)
+			if err != nil {
+				return
 			}
-
-			players := playerRoom.ListPlayers()
-			conn.WriteJSON(room.Message{
-				Type: "room_player_list", Content: players,
-			})
+		case "list_room_player":
+			playerRoom := newPlayer.GetRoom()
+			if playerRoom == nil {
+				err = send(conn, "list_room_player_error", handle_errors.ErrRoomNotFound.Error())
+				if err != nil {
+					return
+				}
+			}
+			slog.Info("[HandleWebSocket]", "list_room_player", playerRoom)
+			players := playerRoom.GetPlayers()
+			err = send(conn, "room_player_list", players)
+			if err != nil {
+				return
+			}
 		case "broadcast":
 			msg, ok := msg.Content.(string)
 			if !ok {
-				conn.WriteJSON(room.Message{
-					Type: "error", Content: "broadcast error",
-				})
+				err = send(conn, "broadcast_error", "broadcast message content error")
+				if err != nil {
+					return
+				}
 			}
-
-			server.Broadcast(room.Message{
-				Type:    "broadcast_all",
-				Content: msg,
-			})
-		case "game_action":
-			slog.Debug("Received game action from player %s: %v", player.ID, msg.Content)
+			server.Broadcast("broadcast_all", msg)
+		case "game_action_first_player":
+			slog.Info("[HandleWebSocket]", "game_action_first_player", "Received game action from player_id = "+newPlayer.GetID())
+			cards, err := contentToCard2(msg.Content)
+			if err != nil {
+				slog.Error("[HandleWebSocket Error]", "game_action_first_player", "contentToCard2", "error", err.Error())
+				err = send(conn, "game_action_first_player_error", "content error")
+				if err != nil {
+					return
+				}
+			}
+			slog.Info("[HandleWebSocket]", "game_action_first_player", cards)
+			err = server.Game.CheckCard("first", cards)
+			if err != nil {
+				slog.Warn("[HandleWebSocket Warn]", "game_action_first_player", "CheckCard", "error", err.Error())
+				err = send(conn, "game_action_first_player_error", err.Error())
+				if err != nil {
+					return
+				}
+			}
 		default:
 			slog.Debug("Unknown message type: %s", "msg.Type", msg.Type)
 		}
 
 	}
 
+}
+
+// 方式一 用 json 處理，代码简洁，易于理解，性能略差
+func contentToCard(content interface{}) ([]big2_card.Card, error) {
+
+	jsonBytes, err := json.Marshal(content)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("[contentToCard]", "contentToCard", jsonBytes)
+	var cards []big2_card.Card
+	if err = json.Unmarshal(jsonBytes, &cards); err != nil {
+		return nil, err
+	}
+
+	return cards, nil
+}
+
+// 方式二 性能更好，代码较长，需要手动处理类型转换
+func contentToCard2(content interface{}) ([]big2_card.Card, error) {
+
+	// 首先断言是否为切片
+	contentSlice, ok := content.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("content is not a slice")
+	}
+
+	cards := make([]big2_card.Card, len(contentSlice))
+	for i, item := range contentSlice {
+		// 斷言每個元素是否為 map[string]interface{} 的 type
+		cardMap, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("item %d is not a map", i)
+		}
+
+		// 斷言 suit 為 float64 的 type
+		suit, ok := cardMap["suit"].(float64)
+		if !ok {
+			return nil, fmt.Errorf("invalid suit at index %d", i)
+		}
+
+		// 斷言 value 為 float64 的 type
+		value, ok := cardMap["value"].(float64)
+		if !ok {
+			return nil, fmt.Errorf("invalid value at index %d", i)
+		}
+
+		// 每個元素的 suit 跟 value 轉成 big2_card.Card 的 type
+		cards[i] = big2_card.Card{
+			Suit:  big2_card.Suit(int(suit)),
+			Value: int(value),
+		}
+	}
+
+	return cards, nil
+}
+
+func send(conn *websocket.Conn, sendType string, content interface{}) error {
+	err := conn.WriteJSON(room.Message{
+		Type:    sendType,
+		Content: content,
+	})
+	if err != nil {
+		slog.Error("[send]", "err", "Error sending message - "+err.Error(), "sendType", sendType, "content", content)
+		return err
+	}
+
+	return nil
 }
