@@ -34,17 +34,19 @@ const (
 type Game interface {
 	Start() error
 	GetHandCards() ([][]big2_card.Card, *big2_card.GarbageCard)
-	SetCurrentTurn(Player)
+	GetCurrentTurn() int
+	SetCurrentTurn(int)
 	CheckCard(string, []big2_card.Card) error
 	PlayCards(Player, []big2_card.Card) error
 	Pass(Player) error
 	GetState() GameState
-	GetCurrentTurn() Player
 	GetLastPlayer() Player
 	SetLastPlayer(Player)
 	GetLastPlayerCard() []big2_card.Card
 	SetLastPlayerCard([]big2_card.Card)
-	// GetWinner() Player
+	GetGameSortPlayer() []Player
+	SetGameSortPlayer(int, Player)
+	GetNextPlayer() Player
 }
 
 type Player interface {
@@ -53,6 +55,7 @@ type Player interface {
 	SetConn(*websocket.Conn)
 	GetHands() []big2_card.Card
 	SetHands([]big2_card.Card)
+	RemoveHands(int) []big2_card.Card
 	GetState() PlayerState
 	SetState(PlayerState)
 	GetRoom() Room

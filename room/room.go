@@ -58,6 +58,8 @@ func (r *Room) StartGame() {
 	for _, player := range r.GetPlayers() {
 		player.SetGameSort(i)
 		player.SetHands(newPlayerDeck[i])
+		r.game.SetGameSortPlayer(i, player)
+
 		// Send each player their hand
 		msg := NewMessage()
 		msg.SetMessage("player_hand", player.GetHands())
@@ -67,7 +69,7 @@ func (r *Room) StartGame() {
 
 	// 找到擁有方塊 3 的玩家開始
 	startingPlayer := r.findStartingPlayer()
-	r.game.SetCurrentTurn(startingPlayer)
+	r.game.SetCurrentTurn(startingPlayer.GetGameSort())
 	r.Broadcast("firstPlayer", map[string]interface{}{
 		"player_id": startingPlayer.GetID(),
 	})

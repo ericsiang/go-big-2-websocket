@@ -3,7 +3,6 @@ package server
 import (
 	"big2/game"
 	"big2/handle_errors"
-	"big2/player"
 	"big2/room"
 	"big2/shared"
 	"log/slog"
@@ -30,17 +29,21 @@ func NewServer() *Server {
 	}
 }
 
-func (s *Server) CreateRoom() *room.Room {
+func (s *Server) CreateRoom(player shared.Player) (*room.Room, error) {
 	rooms := s.ListRooms()
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	slog.Info("[CreateRoom] ")
+	// slog.Info("[CreateRoom] ", "player", player)
+	if player.GetRoom() != nil {
+		return nil, handle_errors.ErrPlayerAlreadyHaveRoom
+	}
 	for {
 		roomID := room.GenerateID()
 		if !slices.Contains(rooms, roomID) {
 			room := room.NewRoom(roomID, s.Game)
 			s.Rooms[roomID] = room
-			return room
+			return room, nil
 		} else {
 			continue
 		}
@@ -85,8 +88,12 @@ func (s *Server) ListPlayers() []string {
 	return players
 }
 
-func (s *Server) JoinRoom(roomID string, player *player.Player) error {
+func (s *Server) JoinRoom(roomID string, player shared.Player) error {
 	slog.Info("[JoinRoom] ")
+	if player.GetRoom() != nil {
+		return handle_errors.ErrPlayerAlreadyHaveRoom
+	}
+
 	room := s.GetRoom(roomID)
 	if room == nil {
 		return handle_errors.ErrRoomNotFound

@@ -65,12 +65,20 @@ func (p *Player) GetHands() []big2_card.Card {
 
 	return p.hands
 }
-func (p *Player) SetHands(hands []big2_card.Card) {
+func (p *Player) SetHands(cards []big2_card.Card) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.hands = hands
+	p.hands = cards
 }
+
+func (p *Player) RemoveHands(index int) []big2_card.Card {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return append(p.hands[:index], p.hands[index+1:]...)
+}
+
 func (p *Player) GetState() shared.PlayerState {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -85,16 +93,28 @@ func (p *Player) SetState(state shared.PlayerState) {
 }
 
 func (p *Player) GetRoom() shared.Room {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	return p.room
 }
 
 func (p *Player) SetRoom(room shared.Room) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.room = room
 }
 func (p *Player) GetGameSort() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	return p.gameSort
 }
 func (p *Player) SetGameSort(sort int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.gameSort = sort
 }
 
@@ -130,7 +150,7 @@ func (p *Player) StartHeartbeat() {
 
 			err := p.conn.WriteJSON(room.Message{Type: "heartbeat"})
 			if err != nil {
-				slog.Error("Error sending heartbeat to player - ", p.id, err.Error())
+				slog.Error("[StartHeartbeat]", "player", p.id, "error", err.Error())
 				p.Disconnect()
 				return
 			}
