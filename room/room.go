@@ -70,9 +70,12 @@ func (r *Room) StartGame() {
 	// 找到擁有方塊 3 的玩家開始
 	startingPlayer := r.findStartingPlayer()
 	r.game.SetCurrentTurn(startingPlayer.GetGameSort())
-	r.Broadcast("firstPlayer", map[string]interface{}{
+	r.Broadcast("first_player_broadcast", map[string]interface{}{
 		"player_id": startingPlayer.GetID(),
 	})
+	msg := NewMessage()
+	msg.SetMessage("first_player", "你是先手")
+	startingPlayer.GetConn().WriteJSON(msg)
 	return
 }
 
@@ -188,11 +191,13 @@ func (r *Room) ReconnectPlayer(player shared.Player) error {
 	slog.Info("[ReconnectPlayer]", "r.disconnectedPlayers", r.disconnectedPlayers)
 
 	// 发送当前游戏状态给重连的玩家
-	player.GetConn().WriteJSON(Message{Type: "game_state", Content: map[string]interface{}{
+	message := NewMessage()
+	message.SetMessage("game_state", map[string]interface{}{
 		"current_turn": r.game.GetCurrentTurn(),
 		"last_play":    r.game.GetLastPlayer(),
 		"hand":         player.GetHands(),
-	}})
+	})
+	player.GetConn().WriteJSON(message)
 
 	// 通知其他玩家该玩家已重连
 	r.Broadcast("player_reconnected", map[string]interface{}{

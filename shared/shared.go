@@ -36,8 +36,8 @@ type Game interface {
 	GetHandCards() ([][]big2_card.Card, *big2_card.GarbageCard)
 	GetCurrentTurn() int
 	SetCurrentTurn(int)
-	CheckCard(string, []big2_card.Card) error
-	PlayCards(Player, []big2_card.Card) error
+	// CheckAndPlayFirstCard(string, []big2_card.Card, Player) error
+	PlayCards(string, Player, []big2_card.Card) error
 	Pass(Player) error
 	GetState() GameState
 	GetLastPlayer() Player
@@ -46,7 +46,7 @@ type Game interface {
 	SetLastPlayerCard([]big2_card.Card)
 	GetGameSortPlayer() []Player
 	SetGameSortPlayer(int, Player)
-	GetNextPlayer() Player
+	NextPlayer(Player)
 }
 
 type Player interface {

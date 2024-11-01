@@ -13,7 +13,7 @@ import (
 
 const (
 	heartbeatInterval = 5 * time.Second
-	heartbeatTimeout  = 300 * time.Second
+	heartbeatTimeout  = 30000 * time.Second
 	reconnectWindow   = 60 * time.Second
 )
 
@@ -75,8 +75,9 @@ func (p *Player) SetHands(cards []big2_card.Card) {
 func (p *Player) RemoveHands(index int) []big2_card.Card {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	return append(p.hands[:index], p.hands[index+1:]...)
+	p.hands[index] = p.hands[len(p.hands)-1]
+	p.hands = p.hands[:len(p.hands)-1]
+	return p.hands
 }
 
 func (p *Player) GetState() shared.PlayerState {

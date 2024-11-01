@@ -93,7 +93,8 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 				slog.Warn("[HandleWebSocket Warn]", "CreateRoom", err.Error())
 				err = send(conn, "create_room_error", err.Error())
 				if err != nil {
-					return
+					slog.Error("[HandleWebSocket Error]", "create_room1", err.Error())
+					continue
 				}
 				continue
 			}
@@ -104,6 +105,7 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 			}
 			err = send(conn, "room_created", createRoom.GetID())
 			if err != nil {
+				slog.Error("[HandleWebSocket Error]", "create_room2", err.Error())
 				return
 			}
 		case "join_room":
@@ -112,7 +114,8 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 				slog.Warn("[HandleWebSocket Warn]", "join_room", handle_errors.ErrRoomNotFound.Error())
 				err = send(conn, "join_room_error", handle_errors.ErrRoomNotFound.Error())
 				if err != nil {
-					return
+					slog.Error("[HandleWebSocket Error]", "join_room1", err.Error())
+					continue
 				}
 				continue
 			}
@@ -122,13 +125,15 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 				slog.Warn("[HandleWebSocket Warn]", "join_room[JoinRoom]", err.Error())
 				err = send(conn, "join_room_error", err.Error())
 				if err != nil {
-					return
+					slog.Error("[HandleWebSocket Error]", "join_room2", err.Error())
+					continue
 				}
 				continue
 			}
 			err = send(conn, "room_joined", roomID)
 			if err != nil {
-				return
+				slog.Error("[HandleWebSocket Error]", "join_room3", err.Error())
+				continue
 			}
 		case "leave_room":
 
@@ -136,20 +141,23 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 			rooms := server.ListRooms()
 			err = send(conn, "room_list", rooms)
 			if err != nil {
-				return
+				slog.Error("[HandleWebSocket Error]", "list_room1", err.Error())
+				continue
 			}
 		case "list_player":
 			players := server.ListPlayers()
 			err = send(conn, "player_list", players)
 			if err != nil {
-				return
+				slog.Error("[HandleWebSocket Error]", "list_player1", err.Error())
+				continue
 			}
 		case "list_room_player":
 			playerRoom := newPlayer.GetRoom()
 			if playerRoom == nil {
 				err = send(conn, "list_room_player_error", handle_errors.ErrRoomNotFound.Error())
 				if err != nil {
-					return
+					slog.Error("[HandleWebSocket Error]", "list_room_player1", err.Error())
+					continue
 				}
 				continue
 			}
@@ -157,17 +165,28 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 			players := playerRoom.GetPlayers()
 			err = send(conn, "room_player_list", players)
 			if err != nil {
-				return
+				slog.Error("[HandleWebSocket Error]", "list_room_player2", err.Error())
+				continue
 			}
 		case "broadcast":
 			msg, ok := msg.Content.(string)
 			if !ok {
 				err = send(conn, "broadcast_error", "broadcast message content error")
 				if err != nil {
-					return
+					slog.Error("[HandleWebSocket Error]", "broadcast1", err.Error())
+					continue
 				}
 			}
 			server.Broadcast("broadcast_all", msg)
+		case "get_player_hands":
+			hands := newPlayer.GetHands()
+			err = send(conn, "get_player_hands", hands)
+			if err != nil {
+				slog.Error("[HandleWebSocket Error]", "get_player_hands1", err.Error())
+				continue
+			}
+		case "game_action_start":
+
 		case "game_action_first_play":
 			slog.Info("[HandleWebSocket]", "game_action_first_play", "Received game action from player_id = "+newPlayer.GetID())
 			// 將 msg.Content 轉成 big2_card.Card
@@ -176,29 +195,63 @@ func HandleWebSocket(server *server.Server, w http.ResponseWriter, r *http.Reque
 				slog.Error("[HandleWebSocket Error]", "game_action_first_play", "contentToCard2", "error", err.Error())
 				err = send(conn, "game_action_first_play_error", "content error")
 				if err != nil {
-					return
+					slog.Error("[HandleWebSocket Error]", "game_action_first_play1", err.Error())
+					continue
 				}
 				continue
 			}
 			slog.Info("[HandleWebSocket]", "game_action_first_play", cards)
 			// 判斷牌型
-			err = server.Game.CheckCard("first", cards)
+			// err = server.Game.CheckAndPlayFirstCard("first", cards, newPlayer)
+			// if err != nil {
+			// 	slog.Warn("[HandleWebSocket Warn]", "game_action_first_play", "CheckAndPlayFirstCard", "error", err.Error())
+			// 	err = send(conn, "game_action_first_play_error", err.Error())
+			// 	if err != nil {
+			// 		slog.Error("[HandleWebSocket Error]", "game_action_first_play2", err.Error())
+			// 		continue
+			// 	}
+			// 	continue
+			// }
+			err = server.Game.PlayCards("first", newPlayer, cards)
 			if err != nil {
-				slog.Warn("[HandleWebSocket Warn]", "game_action_first_play", "CheckCard", "error", err.Error())
-				err = send(conn, "game_action_first_play_error", err.Error())
+				slog.Error("[HandleWebSocket Error]", "game_action_next_play", "PlayCards", "error", err.Error())
+				err = send(conn, "game_action_next_play_error", err.Error())
 				if err != nil {
-					return
+					slog.Error("[HandleWebSocket Error]", "game_action_next_play2", err.Error())
+					continue
 				}
 				continue
 			}
+			server.Game.NextPlayer(newPlayer)
 
-			server.Game.PlayCards(newPlayer, cards)
-			server.Game.SetLastPlayerCard(cards)
-			server.Game.SetLastPlayer(newPlayer)
-			nextPlayer := server.Game.GetNextPlayer()
-			send(nextPlayer.GetConn(), "game_action_next_play", "")
 		case "game_action_next_play":
-
+			slog.Info("[HandleWebSocket]", "game_action_next_play", "Received game action from player_id = "+newPlayer.GetID())
+			// 將 msg.Content 轉成 big2_card.Card
+			cards, err := contentToCard2(msg.Content)
+			if err != nil {
+				slog.Error("[HandleWebSocket Error]", "game_action_next_play", "contentToCard2", "error", err.Error())
+				err = send(conn, "game_action_next_play_error", "content error")
+				if err != nil {
+					slog.Error("[HandleWebSocket Error]", "game_action_next_play1", err.Error())
+					continue
+				}
+				continue
+			}
+			slog.Info("[HandleWebSocket]", "game_action_next_play", cards)
+			err = server.Game.PlayCards("next", newPlayer, cards)
+			if err != nil {
+				slog.Error("[HandleWebSocket Error]", "game_action_next_play", "PlayCards", "error", err.Error())
+				err = send(conn, "game_action_next_play_error", err.Error())
+				if err != nil {
+					slog.Error("[HandleWebSocket Error]", "game_action_next_play2", err.Error())
+					continue
+				}
+				continue
+			}
+			server.Game.NextPlayer(newPlayer)
+		case "game_action_pass":
+			server.Game.Pass(newPlayer)
+			server.Game.NextPlayer(newPlayer)
 		default:
 			slog.Debug("Unknown message type: %s", "msg.Type", msg.Type)
 		}

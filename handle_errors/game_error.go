@@ -21,4 +21,6 @@ var (
 	ErrInvalidGameState      = &GameError{Type: "Game", Code: 6, Message: "Invalid game state"}
 	ErrFirstCardNotAllow     = &GameError{Type: "Game", Code: 7, Message: "First Card must have block three"}
 	ErrPlayerAlreadyHaveRoom = &GameError{Type: "Game", Code: 8, Message: "Player already have room"}
+	ErrCardNotBigger         = &GameError{Type: "Game", Code: 9, Message: "Cards not bigger"}
+	ErrHandsCardNotFound     = &GameError{Type: "Game", Code: 10, Message: "Cards not Found in you hands card"}
 )
