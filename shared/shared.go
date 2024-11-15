@@ -79,8 +79,6 @@ type Room interface {
 	RemoveDisconnectedPlayer(Player)
 	GetState() RoomState
 	SetState(RoomState)
-	// GetLastActivity() time.Time
-	// UpdateLastActivity()
 	ReconnectPlayer(Player) error
 	Broadcast(string, interface{})
 }
